@@ -209,7 +209,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func startTaskTimer() {
         let prompt = NSAlert()
         prompt.messageText = "Start Task Timer"
-        prompt.informativeText = "Enter the estimated hours for this task. Automatic tracking pauses while this runs. If you go over the estimate, half of the total elapsed time (rounded to the nearest hour) is deducted; otherwise the actual elapsed time (rounded to the nearest hour) is deducted."
+        prompt.informativeText = "Enter the estimated hours for this task. Automatic tracking pauses while this runs. If you go over the estimate, half of the overage (rounded to the nearest hour) is forgiven and the rest counts against the weekly cap; otherwise the full elapsed time counts."
         prompt.addButton(withTitle: "Start")
         prompt.addButton(withTitle: "Cancel")
 
@@ -247,9 +247,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let summary = NSAlert()
         summary.messageText = result.wentOverEstimate ? "Task Went Over Estimate" : "Task Timer Stopped"
         if result.wentOverEstimate {
-            summary.informativeText = "Elapsed: \(formatDuration(result.elapsedSeconds)) (over your \(formatHours(estimate / 3600)) estimate). Half of elapsed, rounded to the nearest hour, was deducted: \(result.chargedHours)h."
+            summary.informativeText = "Elapsed: \(formatDuration(result.elapsedSeconds)) (over your \(formatHours(estimate / 3600)) estimate). \(formatDuration(result.forgivenSeconds)) forgiven; \(formatDuration(result.chargedSeconds)) deducted from this week's cap."
         } else {
-            summary.informativeText = "Elapsed: \(formatDuration(result.elapsedSeconds)), within your \(formatHours(estimate / 3600)) estimate. Rounded to the nearest hour, \(result.chargedHours)h was deducted."
+            summary.informativeText = "Elapsed: \(formatDuration(result.elapsedSeconds)), within your \(formatHours(estimate / 3600)) estimate. \(formatDuration(result.chargedSeconds)) deducted from this week's cap."
         }
         summary.runModal()
     }

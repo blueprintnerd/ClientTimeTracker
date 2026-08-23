@@ -86,29 +86,45 @@ final class TimeBank {
 
     struct ManualSessionResult {
         let elapsedSeconds: TimeInterval
+        let estimateSeconds: TimeInterval
         let wentOverEstimate: Bool
-        let chargedHours: Int
+        let forgivenSeconds: TimeInterval
+        let chargedSeconds: TimeInterval
     }
 
-    /// Applies a manually-timed task session to the weekly bank.
-    /// - If `elapsedSeconds` stayed within `estimateSeconds`, the actual
-    ///   elapsed time (rounded to the nearest hour) is deducted.
-    /// - If it went over, half of the total elapsed time (rounded to the
-    ///   nearest hour) is deducted instead.
+    /// Applies a manually-timed task session to the weekly bank, per the
+    /// contract's estimate-overrun rule:
+    /// - Within estimate: the actual elapsed time is deducted in full.
+    /// - Over estimate: take the overage (elapsed − estimate), halve it,
+    ///   round that half to the nearest hour (30+ min rounds up) — that
+    ///   rounded amount is forgiven. Whatever's left of the elapsed time
+    ///   (elapsed − forgiven) is deducted from the weekly cap.
     @discardableResult
     func applyManualSession(elapsedSeconds: TimeInterval, estimateSeconds: TimeInterval) -> ManualSessionResult {
         let wentOver = elapsedSeconds > estimateSeconds
-        let baseSeconds = wentOver ? elapsedSeconds / 2 : elapsedSeconds
-        let chargedHours = Int((baseSeconds / 3600).rounded())
-        let chargedSeconds = TimeInterval(chargedHours) * 3600
+        let forgivenSeconds: TimeInterval
+        let chargedSeconds: TimeInterval
+
+        if wentOver {
+            let overageSeconds = elapsedSeconds - estimateSeconds
+            let halfOverageHours = (overageSeconds / 2) / 3600
+            let forgivenHours = halfOverageHours.rounded() // 30+ min rounds up
+            forgivenSeconds = min(TimeInterval(forgivenHours) * 3600, overageSeconds)
+            chargedSeconds = elapsedSeconds - forgivenSeconds
+        } else {
+            forgivenSeconds = 0
+            chargedSeconds = elapsedSeconds
+        }
 
         remainingSeconds = max(0, remainingSeconds - chargedSeconds)
         persist()
 
         return ManualSessionResult(
             elapsedSeconds: elapsedSeconds,
+            estimateSeconds: estimateSeconds,
             wentOverEstimate: wentOver,
-            chargedHours: chargedHours
+            forgivenSeconds: forgivenSeconds,
+            chargedSeconds: chargedSeconds
         )
     }
 
