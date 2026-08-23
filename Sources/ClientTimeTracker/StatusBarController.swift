@@ -5,7 +5,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let idleThreshold: Double = 45
 
     private let bank = TimeBank()
-    private let statusItem = NSStatusItem(withLength: NSStatusItem.variableLength)
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
 
     private let statusLineItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
