@@ -1,0 +1,53 @@
+name: Build DMG
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Assemble .app bundle
+        run: |
+          APP="ClientTimeTracker.app"
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS"
+          cp .build/release/ClientTimeTracker "$APP/Contents/MacOS/ClientTimeTracker"
+          cp Resources/Info.plist "$APP/Contents/Info.plist"
+          chmod +x "$APP/Contents/MacOS/ClientTimeTracker"
+
+      - name: Build .dmg
+        run: |
+          STAGING="dmg-staging"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          cp -R ClientTimeTracker.app "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "ClientTimeTracker" \
+            -srcfolder "$STAGING" \
+            -ov -format UDZO \
+            ClientTimeTracker.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClientTimeTracker-dmg
+          path: ClientTimeTracker.dmg
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ClientTimeTracker.dmg

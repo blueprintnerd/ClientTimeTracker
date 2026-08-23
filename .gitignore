@@ -1,0 +1,6 @@
+.build/
+.swiftpm/
+*.dmg
+ClientTimeTracker.app/
+dmg-staging/
+.DS_Store
