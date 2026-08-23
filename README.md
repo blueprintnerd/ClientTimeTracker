@@ -11,6 +11,9 @@ A macOS menu-bar app that bills a client's remote-support time.
 - **Add 1 Hour ($1)** button in the menu adds an hour to the current week's bank and $1.00 to a running lifetime total.
 - Every **Sunday**, the hour bank refreshes back to 10 hours (plus purchases reset to 0 for the new week) — but the lifetime dollar total is **not** cleared automatically, so pricing/billing stays consistent week to week.
 - The lifetime total can only be reset via **Clear Lifetime Total…**, which requires a password.
+- **Start Task Timer…** is a manual stopwatch for a single task: enter an estimated number of hours, and it starts counting up. This pauses the automatic TeamViewer/idle tracking while it runs. Press **Stop Task Timer** to end it:
+  - If you finished within the estimate, the actual elapsed time (rounded to the nearest hour) is deducted from the weekly bank.
+  - If you went over the estimate, **half of the total elapsed time** (rounded to the nearest hour) is deducted instead.
 
 ## Build & run (on macOS, Swift 5.9+ / Xcode 15+)
 

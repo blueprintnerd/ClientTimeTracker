@@ -13,9 +13,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let lifetimeLineItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var addHourItem: NSMenuItem!
     private var clearTotalItem: NSMenuItem!
+    private var taskTimerLineItem: NSMenuItem!
+    private var taskTimerToggleItem: NSMenuItem!
 
     private var tickTimer: Timer?
     private var lastTickWasCounting = false
+
+    // Manual "lap timer" task session. While active, automatic
+    // TeamViewer/idle-based counting is paused.
+    private var taskTimerEstimateSeconds: TimeInterval?
+    private var taskTimerStartDate: Date?
 
     override init() {
         super.init()
@@ -45,6 +52,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         )
         clearTotalItem.target = self
 
+        taskTimerLineItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        taskTimerLineItem.isEnabled = false
+        taskTimerLineItem.isHidden = true
+
+        taskTimerToggleItem = NSMenuItem(
+            title: "Start Task Timer…",
+            action: #selector(taskTimerToggleTapped),
+            keyEquivalent: ""
+        )
+        taskTimerToggleItem.target = self
+
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitTapped), keyEquivalent: "q")
         quitItem.target = self
 
@@ -54,6 +72,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(addHourItem)
         menu.addItem(clearTotalItem)
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(taskTimerLineItem)
+        menu.addItem(taskTimerToggleItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(quitItem)
     }
@@ -65,33 +86,46 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         RunLoop.main.add(tickTimer!, forMode: .common)
     }
 
+    private var isTaskTimerRunning: Bool { taskTimerStartDate != nil }
+
     private func tick() {
         if bank.applyWeeklyResetIfNeeded() {
             // Week rolled over; hour bank is back to 10h, dollar total untouched.
         }
 
-        let isUserActive = ActivityMonitor.idleSeconds() < idleThreshold
-        let hasSession = ActivityMonitor.isTeamViewerSessionActive()
-        let shouldCount = isUserActive && hasSession && bank.remainingSeconds > 0
+        if isTaskTimerRunning {
+            // Manual task session in progress: automatic tracking is paused.
+            lastTickWasCounting = false
+        } else {
+            let isUserActive = ActivityMonitor.idleSeconds() < idleThreshold
+            let hasSession = ActivityMonitor.isTeamViewerSessionActive()
+            let shouldCount = isUserActive && hasSession && bank.remainingSeconds > 0
 
-        if shouldCount {
-            bank.consumeSecond()
+            if shouldCount {
+                bank.consumeSecond()
+            }
+            lastTickWasCounting = shouldCount
         }
-        lastTickWasCounting = shouldCount
 
         refreshDisplay()
     }
 
-    private func refreshDisplay() {
-        let remaining = bank.remainingSeconds
-        let hours = Int(remaining) / 3600
-        let minutes = (Int(remaining) % 3600) / 60
-        let timeString = String(format: "%dh %02dm", hours, minutes)
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let totalSeconds = max(0, Int(seconds))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        return String(format: "%dh %02dm", hours, minutes)
+    }
 
-        statusItem.button?.title = (lastTickWasCounting ? "⏱ " : "⏸ ") + timeString
+    private func refreshDisplay() {
+        let timeString = formatDuration(bank.remainingSeconds)
+
+        statusItem.button?.title = (isTaskTimerRunning ? "🧭 " : (lastTickWasCounting ? "⏱ " : "⏸ ")) + timeString
 
         let statusText: String
-        if bank.remainingSeconds <= 0 {
+        if isTaskTimerRunning {
+            statusText = "Status: Task timer running"
+        } else if bank.remainingSeconds <= 0 {
             statusText = "Status: Out of time"
         } else if lastTickWasCounting {
             statusText = "Status: Counting"
@@ -108,6 +142,21 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         lifetimeLineItem.title = String(format: "Lifetime total: $%.2f", bank.lifetimeDollars)
+
+        if let start = taskTimerStartDate, let estimate = taskTimerEstimateSeconds {
+            let elapsed = Date().timeIntervalSince(start)
+            let estimateHours = estimate / 3600
+            taskTimerLineItem.title = "Task timer: \(formatDuration(elapsed)) elapsed (est. \(formatHours(estimateHours)))"
+            taskTimerLineItem.isHidden = false
+            taskTimerToggleItem.title = "Stop Task Timer"
+        } else {
+            taskTimerLineItem.isHidden = true
+            taskTimerToggleItem.title = "Start Task Timer…"
+        }
+    }
+
+    private func formatHours(_ hours: Double) -> String {
+        hours == hours.rounded() ? "\(Int(hours))h" : String(format: "%.1fh", hours)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -147,6 +196,62 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             failure.alertStyle = .warning
             failure.runModal()
         }
+    }
+
+    @objc private func taskTimerToggleTapped() {
+        if isTaskTimerRunning {
+            stopTaskTimer()
+        } else {
+            startTaskTimer()
+        }
+    }
+
+    private func startTaskTimer() {
+        let prompt = NSAlert()
+        prompt.messageText = "Start Task Timer"
+        prompt.informativeText = "Enter the estimated hours for this task. Automatic tracking pauses while this runs. If you go over the estimate, half of the total elapsed time (rounded to the nearest hour) is deducted; otherwise the actual elapsed time (rounded to the nearest hour) is deducted."
+        prompt.addButton(withTitle: "Start")
+        prompt.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Hours, e.g. 2 or 1.5"
+        prompt.accessoryView = field
+        prompt.window.initialFirstResponder = field
+
+        guard prompt.runModal() == .alertFirstButtonReturn else { return }
+
+        guard let hours = Double(field.stringValue.trimmingCharacters(in: .whitespaces)), hours > 0 else {
+            let failure = NSAlert()
+            failure.messageText = "Invalid Estimate"
+            failure.informativeText = "Enter a positive number of hours, e.g. 2 or 1.5."
+            failure.alertStyle = .warning
+            failure.runModal()
+            return
+        }
+
+        taskTimerEstimateSeconds = hours * 3600
+        taskTimerStartDate = Date()
+        refreshDisplay()
+    }
+
+    private func stopTaskTimer() {
+        guard let start = taskTimerStartDate, let estimate = taskTimerEstimateSeconds else { return }
+        let elapsed = Date().timeIntervalSince(start)
+
+        let result = bank.applyManualSession(elapsedSeconds: elapsed, estimateSeconds: estimate)
+
+        taskTimerStartDate = nil
+        taskTimerEstimateSeconds = nil
+        refreshDisplay()
+
+        let summary = NSAlert()
+        summary.messageText = result.wentOverEstimate ? "Task Went Over Estimate" : "Task Timer Stopped"
+        if result.wentOverEstimate {
+            summary.informativeText = "Elapsed: \(formatDuration(result.elapsedSeconds)) (over your \(formatHours(estimate / 3600)) estimate). Half of elapsed, rounded to the nearest hour, was deducted: \(result.chargedHours)h."
+        } else {
+            summary.informativeText = "Elapsed: \(formatDuration(result.elapsedSeconds)), within your \(formatHours(estimate / 3600)) estimate. Rounded to the nearest hour, \(result.chargedHours)h was deducted."
+        }
+        summary.runModal()
     }
 
     @objc private func quitTapped() {

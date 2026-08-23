@@ -84,6 +84,34 @@ final class TimeBank {
         persist()
     }
 
+    struct ManualSessionResult {
+        let elapsedSeconds: TimeInterval
+        let wentOverEstimate: Bool
+        let chargedHours: Int
+    }
+
+    /// Applies a manually-timed task session to the weekly bank.
+    /// - If `elapsedSeconds` stayed within `estimateSeconds`, the actual
+    ///   elapsed time (rounded to the nearest hour) is deducted.
+    /// - If it went over, half of the total elapsed time (rounded to the
+    ///   nearest hour) is deducted instead.
+    @discardableResult
+    func applyManualSession(elapsedSeconds: TimeInterval, estimateSeconds: TimeInterval) -> ManualSessionResult {
+        let wentOver = elapsedSeconds > estimateSeconds
+        let baseSeconds = wentOver ? elapsedSeconds / 2 : elapsedSeconds
+        let chargedHours = Int((baseSeconds / 3600).rounded())
+        let chargedSeconds = TimeInterval(chargedHours) * 3600
+
+        remainingSeconds = max(0, remainingSeconds - chargedSeconds)
+        persist()
+
+        return ManualSessionResult(
+            elapsedSeconds: elapsedSeconds,
+            wentOverEstimate: wentOver,
+            chargedHours: chargedHours
+        )
+    }
+
     /// Clears the lifetime dollar total only if the password matches.
     /// Returns true on success.
     @discardableResult
