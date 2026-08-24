@@ -22,5 +22,7 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Personal use.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>ClientTimeTracker captures periodic screenshots during active TeamViewer sessions as a shared record of the work performed.</string>
 </dict>
 </plist>

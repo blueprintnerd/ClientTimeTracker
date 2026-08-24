@@ -5,6 +5,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let idleThreshold: Double = 45
 
     private let bank = TimeBank()
+    private let recorder = ScreenshotRecorder()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
 
@@ -16,6 +17,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var taskTimerLineItem: NSMenuItem!
     private var taskTimerToggleItem: NSMenuItem!
     private var diagnosticsItem: NSMenuItem!
+    private var recordingLineItem: NSMenuItem!
+    private var openShotsItem: NSMenuItem!
 
     private var tickTimer: Timer?
     private var lastTickWasCounting = false
@@ -65,6 +68,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         )
         taskTimerToggleItem.target = self
 
+        recordingLineItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        recordingLineItem.isEnabled = false
+
+        openShotsItem = NSMenuItem(
+            title: "Open Screenshots Folder",
+            action: #selector(openShotsTapped),
+            keyEquivalent: ""
+        )
+        openShotsItem.target = self
+
         let diagnosticsItem = NSMenuItem(
             title: "TeamViewer Diagnostics…",
             action: #selector(diagnosticsTapped),
@@ -86,6 +99,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(taskTimerLineItem)
         menu.addItem(taskTimerToggleItem)
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(recordingLineItem)
+        menu.addItem(openShotsItem)
         menu.addItem(diagnosticsItem)
         menu.addItem(quitItem)
     }
@@ -104,12 +119,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             // Week rolled over; hour bank is back to 10h, dollar total untouched.
         }
 
+        lastTeamViewerState = ActivityMonitor.teamViewerState()
+
         if isTaskTimerRunning {
             // Manual task session in progress: automatic tracking is paused.
             lastTickWasCounting = false
         } else {
             let isUserActive = ActivityMonitor.idleSeconds() < idleThreshold
-            lastTeamViewerState = ActivityMonitor.teamViewerState()
             // Only `.active` bills. `.unknown` deliberately does not —
             // see TeamViewerDetector for why we fail closed.
             let shouldCount = isUserActive
@@ -120,6 +136,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 bank.consumeSecond()
             }
             lastTickWasCounting = shouldCount
+        }
+
+        // Proof-of-work screenshots run whenever a TeamViewer session is
+        // active, regardless of idle state or task timer — they document
+        // that the session genuinely happened.
+        if lastTeamViewerState == .active {
+            recorder.captureIfDue()
         }
 
         refreshDisplay()
@@ -135,7 +158,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func refreshDisplay() {
         let timeString = formatDuration(bank.remainingSeconds)
 
-        statusItem.button?.title = (isTaskTimerRunning ? "🧭 " : (lastTickWasCounting ? "⏱ " : "⏸ ")) + timeString
+        let recordingActive = (lastTeamViewerState == .active)
+        let recPrefix = recordingActive ? "🔴 " : ""
+        statusItem.button?.title = recPrefix + (isTaskTimerRunning ? "🧭 " : (lastTickWasCounting ? "⏱ " : "⏸ ")) + timeString
 
         let statusText: String
         if isTaskTimerRunning {
@@ -162,6 +187,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         lifetimeLineItem.title = String(format: "Lifetime total: $%.2f", bank.lifetimeDollars)
+
+        let shotCount = recorder.storedCount()
+        if lastTeamViewerState == .active {
+            recordingLineItem.title = "🔴 Recording screen (session active) — \(shotCount) shots saved"
+        } else {
+            recordingLineItem.title = "Screen recording idle (no session) — \(shotCount) shots saved"
+        }
+        if let err = recorder.lastError {
+            recordingLineItem.title += "  ⚠︎ " + err
+        }
 
         if let start = taskTimerStartDate, let estimate = taskTimerEstimateSeconds {
             let elapsed = Date().timeIntervalSince(start)
@@ -272,6 +307,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             summary.informativeText = "Elapsed: \(formatDuration(result.elapsedSeconds)), within your \(formatHours(estimate / 3600)) estimate. \(formatDuration(result.chargedSeconds)) deducted from this week's cap."
         }
         summary.runModal()
+    }
+
+    @objc private func openShotsTapped() {
+        NSWorkspace.shared.open(recorder.storageDirectory)
     }
 
     @objc private func diagnosticsTapped() {

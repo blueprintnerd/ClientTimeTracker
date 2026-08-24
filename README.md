@@ -17,6 +17,21 @@ A macOS menu-bar app that bills a client's remote-support time.
     - Example: 2h estimate, 4h actual → 2h overage → 1h forgiven → 3h deducted.
     - Example: 2h estimate, 3h actual → 1h overage → rounds up to 1h forgiven → 2h deducted (i.e. just the estimate).
 
+- **Proof-of-work screenshots.** While a TeamViewer session is active, the
+  app captures a full-screen screenshot every 2 minutes and saves it to
+  `~/Library/Application Support/ClientTimeTracker/Screenshots/`. This is a
+  shared record of the work performed, so time worked isn't disputable.
+  - A **🔴 indicator** appears in the menu bar and a menu line reports
+    recording status and shot count — recording is always visibly disclosed,
+    never hidden.
+  - Capture stops automatically when no TeamViewer session is active.
+  - **Open Screenshots Folder** opens the saved images.
+  - macOS requires **Screen Recording** permission (System Settings →
+    Privacy & Security → Screen Recording). The first capture triggers the
+    prompt; until it's granted, captures fail and the menu line shows a
+    ⚠︎ warning. The images are stored locally only — the app never uploads
+    them anywhere.
+
 ## Build & run (on macOS, Swift 5.9+ / Xcode 15+)
 
 ```bash
