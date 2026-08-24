@@ -43,6 +43,20 @@ you've marked it approved for the week via **Approve Overage This Week**
 - **Export Time Log (CSV)…** saves a copy anywhere for sending to the client.
   This is the strongest answer to "you couldn't have worked that many hours."
 
+### Surviving the client powering off the Mac
+The client shutting the Mac down when work ends is handled:
+- The open session's running time is persisted every ~15s, so an abrupt
+  power-off loses at most a few seconds.
+- On next launch the app **recovers** that unclosed session and writes it to
+  the CSV (end time = last counted second), tagged
+  `recovered (Mac shut down mid-session)`, so the log stays complete.
+- A power-off / quit notification also flushes and closes the session when
+  macOS gives the app the moment to do so.
+- **Launch at Login** (menu toggle) keeps the app running across restarts so
+  it's tracking again as soon as the Mac comes back on. Requires the app to
+  live in `/Applications`; if the toggle errors, add it manually in System
+  Settings → General → Login Items.
+
 ### Proof-of-work screenshots (secondary; consent-gated per Section 8)
 Screenshots are **off until the client consents in the app**, because §8
 requires the other party's separate written consent before any tracking
