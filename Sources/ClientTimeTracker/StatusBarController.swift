@@ -15,9 +15,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var clearTotalItem: NSMenuItem!
     private var taskTimerLineItem: NSMenuItem!
     private var taskTimerToggleItem: NSMenuItem!
+    private var diagnosticsItem: NSMenuItem!
 
     private var tickTimer: Timer?
     private var lastTickWasCounting = false
+    private var lastTeamViewerState: TeamViewerDetector.SessionState = .unknown
 
     // Manual "lap timer" task session. While active, automatic
     // TeamViewer/idle-based counting is paused.
@@ -63,6 +65,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         )
         taskTimerToggleItem.target = self
 
+        let diagnosticsItem = NSMenuItem(
+            title: "TeamViewer Diagnostics…",
+            action: #selector(diagnosticsTapped),
+            keyEquivalent: ""
+        )
+        diagnosticsItem.target = self
+        self.diagnosticsItem = diagnosticsItem
+
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitTapped), keyEquivalent: "q")
         quitItem.target = self
 
@@ -76,6 +86,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(taskTimerLineItem)
         menu.addItem(taskTimerToggleItem)
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(diagnosticsItem)
         menu.addItem(quitItem)
     }
 
@@ -98,8 +109,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             lastTickWasCounting = false
         } else {
             let isUserActive = ActivityMonitor.idleSeconds() < idleThreshold
-            let hasSession = ActivityMonitor.isTeamViewerSessionActive()
-            let shouldCount = isUserActive && hasSession && bank.remainingSeconds > 0
+            lastTeamViewerState = ActivityMonitor.teamViewerState()
+            // Only `.active` bills. `.unknown` deliberately does not —
+            // see TeamViewerDetector for why we fail closed.
+            let shouldCount = isUserActive
+                && lastTeamViewerState == .active
+                && bank.remainingSeconds > 0
 
             if shouldCount {
                 bank.consumeSecond()
@@ -129,10 +144,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             statusText = "Status: Out of time"
         } else if lastTickWasCounting {
             statusText = "Status: Counting"
-        } else if !ActivityMonitor.isTeamViewerSessionActive() {
-            statusText = "Status: Paused (no TeamViewer session)"
         } else {
-            statusText = "Status: Paused (idle)"
+            switch lastTeamViewerState {
+            case .inactive:
+                statusText = "Status: Paused (no TeamViewer session)"
+            case .unknown:
+                statusText = "Status: Paused (can't confirm session — not billing)"
+            case .active:
+                statusText = "Status: Paused (idle)"
+            }
         }
         statusLineItem.title = statusText
 
@@ -252,6 +272,31 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             summary.informativeText = "Elapsed: \(formatDuration(result.elapsedSeconds)), within your \(formatHours(estimate / 3600)) estimate. \(formatDuration(result.chargedSeconds)) deducted from this week's cap."
         }
         summary.runModal()
+    }
+
+    @objc private func diagnosticsTapped() {
+        let report = TeamViewerDetector.report()
+
+        let alert = NSAlert()
+        alert.messageText = "TeamViewer Detection Diagnostics"
+        alert.informativeText = "This shows exactly what the app can observe right now. Run it once with a TeamViewer session connected and once without, and compare — that confirms whether detection is working before you rely on it for billing."
+        alert.addButton(withTitle: "Copy to Clipboard")
+        alert.addButton(withTitle: "Close")
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 460, height: 260))
+        textView.string = report
+        textView.isEditable = false
+        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 460, height: 260))
+        scroll.documentView = textView
+        scroll.hasVerticalScroller = true
+        alert.accessoryView = scroll
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(report, forType: .string)
+        }
     }
 
     @objc private func quitTapped() {

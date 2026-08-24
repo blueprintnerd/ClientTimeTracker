@@ -15,24 +15,9 @@ enum ActivityMonitor {
         )
     }
 
-    /// True while TeamViewer has a live remote-control session running.
-    /// TeamViewer on macOS spawns a distinct "TeamViewer_Desktop" helper
-    /// process only for the duration of an active session (incoming or
-    /// outgoing); the main TeamViewer app/service process persists
-    /// regardless of whether a session is connected, so we key off the
-    /// helper process specifically rather than "TeamViewer is running".
-    static func isTeamViewerSessionActive() -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        process.arguments = ["-x", "TeamViewer_Desktop"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
-            return false
-        }
+    /// Session detection lives in `TeamViewerDetector`, which combines
+    /// several signals and fails closed when they are inconclusive.
+    static func teamViewerState() -> TeamViewerDetector.SessionState {
+        TeamViewerDetector.currentState()
     }
 }

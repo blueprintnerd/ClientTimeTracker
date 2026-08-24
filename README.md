@@ -33,13 +33,34 @@ System Settings → General → Login Items.
 
 ## Notes / caveats
 
-- **TeamViewer session detection** works by checking for TeamViewer's
-  `TeamViewer_Desktop` helper process, which macOS TeamViewer only runs for
-  the duration of an active remote-control session (the main app/service
-  process stays running even with no session connected). This is an
-  unofficial heuristic — TeamViewer doesn't publish a session-status API —
-  so if a future TeamViewer version changes its process architecture, this
-  check may need updating.
+- **TeamViewer session detection is unverified and fails closed.**
+  TeamViewer publishes no session-status API, so `TeamViewerDetector`
+  combines several signals: whether any TeamViewer process is running, and
+  whether the most recent session marker in TeamViewer's own logfile
+  (`AddParticipant` = start, `SessionTerminate` = end) is a start or an end.
+  It resolves to one of three states:
+  - `active` — bills time.
+  - `inactive` — does not bill.
+  - `unknown` — signals missing or contradictory. **Does not bill.**
+
+  The fail-closed default is deliberate: under-counting can be corrected by
+  hand, but billing a client for hours nobody worked cannot. If detection
+  is unreliable on your setup, use the **Task Timer** instead, which is
+  explicit and auditable.
+
+  **This detection has not been tested against a live TeamViewer session.**
+  Use **TeamViewer Diagnostics…** in the menu (once with a session
+  connected, once without) to confirm it works before relying on it for
+  billing.
+
+- **For invoice reconciliation**, TeamViewer writes
+  `~/Library/Logs/TeamViewer/Connections_incoming.txt` — one row per
+  *completed* incoming session, with start and end timestamps in UTC. It's
+  written when a session ends, so it can't drive the live counter, but it's
+  the best auditable record if a bill is ever disputed. The diagnostics
+  panel shows whether this file was found. Note it only covers **incoming**
+  connections — if you connect *out* to the client's machine, the record
+  lives on their Mac, not yours.
 - **Idle detection** uses `CGEventSource` to read system-wide seconds since
   the last input event. No special permission is required for this reading
   (only *simulating* or globally *observing* events needs Accessibility
