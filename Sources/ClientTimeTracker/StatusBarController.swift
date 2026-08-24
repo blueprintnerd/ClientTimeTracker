@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 final class StatusBarController: NSObject, NSMenuDelegate {
 
@@ -34,6 +35,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var openShotsItem: NSMenuItem!
     private var exportLogItem: NSMenuItem!
     private var newPeriodItem: NSMenuItem!
+    private var launchAtLoginItem: NSMenuItem!
 
     private var tickTimer: Timer?
     private var lastTickWasCounting = false
@@ -46,11 +48,31 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     override init() {
         super.init()
+        // Recover any session left open by an abrupt shutdown, before a new
+        // session can begin.
+        sessionLog.recoverPendingSession()
         buildMenu()
         statusItem.menu = menu
         menu.delegate = self
+        registerPowerObservers()
         refreshDisplay()
         startTicking()
+    }
+
+    /// Flush counters and close/persist the open session when the machine is
+    /// shutting down or the app is quitting, so nothing is lost. The startup
+    /// recovery is the reliable backstop; these just tighten the window.
+    private func registerPowerObservers() {
+        let wsCenter = NSWorkspace.shared.notificationCenter
+        wsCenter.addObserver(self, selector: #selector(flushForShutdown),
+                             name: NSWorkspace.willPowerOffNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(flushForShutdown),
+                                               name: NSApplication.willTerminateNotification, object: nil)
+    }
+
+    @objc private func flushForShutdown() {
+        bank.flushIfDirty()
+        sessionLog.endAutomaticSessionIfNeeded()
     }
 
     private func buildMenu() {
@@ -115,6 +137,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         )
         newPeriodItem.target = self
 
+        launchAtLoginItem = NSMenuItem(
+            title: "Launch at Login",
+            action: #selector(launchAtLoginTapped),
+            keyEquivalent: ""
+        )
+        launchAtLoginItem.target = self
+
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quitTapped), keyEquivalent: "q")
         quitItem.target = self
 
@@ -132,6 +161,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(exportLogItem)
         menu.addItem(diagnosticsItem)
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(launchAtLoginItem)
         menu.addItem(newPeriodItem)
         menu.addItem(quitItem)
     }
@@ -166,7 +196,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             if shouldCount {
                 sessionLog.beginAutomaticSessionIfNeeded(now: now)
                 let outcome = bank.consumeSecond()
-                sessionLog.recordCountedSecond(kind: outcome)
+                sessionLog.recordCountedSecond(kind: outcome, now: now)
                 if outcome == .blocked {
                     lastTickWasCounting = false
                     sessionLog.endAutomaticSessionIfNeeded(now: now)
@@ -189,6 +219,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         if now.timeIntervalSince(lastFlushAt) >= flushInterval {
             bank.flushIfDirty()
+            sessionLog.persistOpenState()
             lastFlushAt = now
         }
 
@@ -258,6 +289,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             recordingLineItem.title += "  ⚠︎ " + err
         }
         consentItem.title = screenshotConsentGranted ? "Screenshot Consent (granted)…" : "Screenshot Consent (not granted)…"
+
+        launchAtLoginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
 
         if let start = taskTimerStartDate, let estimate = taskTimerEstimateSeconds {
             let elapsed = Date().timeIntervalSince(start)
@@ -465,6 +498,23 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             f.alertStyle = .warning
             f.runModal()
         }
+    }
+
+    @objc private func launchAtLoginTapped() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            let a = NSAlert()
+            a.messageText = "Couldn't Change Launch-at-Login"
+            a.informativeText = error.localizedDescription + "\n\nThis needs the app to be in /Applications. If it keeps failing, add it manually in System Settings → General → Login Items."
+            a.alertStyle = .warning
+            a.runModal()
+        }
+        refreshDisplay()
     }
 
     @objc private func quitTapped() {
