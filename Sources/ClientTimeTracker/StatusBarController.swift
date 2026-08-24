@@ -23,9 +23,18 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         set { defaults.set(newValue, forKey: consentKey) }
     }
 
+    /// Manual, password-gated override that stops all counting and
+    /// screenshots regardless of TeamViewer state until manually resumed.
+    private let manualStopKey = "manuallyStopped"
+    private var manuallyStopped: Bool {
+        get { defaults.bool(forKey: manualStopKey) }
+        set { defaults.set(newValue, forKey: manualStopKey) }
+    }
+
     private let statusLineItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let baseLineItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let overageLineItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var manualStopItem: NSMenuItem!
     private var approveOverageItem: NSMenuItem!
     private var taskTimerLineItem: NSMenuItem!
     private var taskTimerToggleItem: NSMenuItem!
@@ -79,6 +88,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         statusLineItem.isEnabled = false
         baseLineItem.isEnabled = false
         overageLineItem.isEnabled = false
+
+        manualStopItem = NSMenuItem(
+            title: "Stop Tracking (password)…",
+            action: #selector(manualStopTapped),
+            keyEquivalent: ""
+        )
+        manualStopItem.target = self
 
         approveOverageItem = NSMenuItem(
             title: "Approve Overage This Week…",
@@ -151,6 +167,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(baseLineItem)
         menu.addItem(overageLineItem)
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(manualStopItem)
         menu.addItem(approveOverageItem)
         menu.addItem(taskTimerLineItem)
         menu.addItem(taskTimerToggleItem)
@@ -187,6 +204,21 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let tvActive = (lastTeamViewerState == .active)
         let idleSeconds = ActivityMonitor.idleSeconds()
         let userIsIdle = idleSeconds >= idleThreshold
+
+        if manuallyStopped {
+            // Manual, password-gated stop: nothing counts, session closed,
+            // no screenshots — regardless of TeamViewer state.
+            lastTickWasCounting = false
+            sessionLog.endAutomaticSessionIfNeeded(now: now)
+            recorder.sessionEnded()
+            if now.timeIntervalSince(lastFlushAt) >= flushInterval {
+                bank.flushIfDirty()
+                sessionLog.persistOpenState()
+                lastFlushAt = now
+            }
+            refreshDisplay()
+            return
+        }
 
         if isTaskTimerRunning {
             lastTickWasCounting = false
@@ -237,13 +269,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private func refreshDisplay() {
         let tvActive = (lastTeamViewerState == .active)
-        let recordingLive = tvActive && screenshotConsentGranted && recorder.lastError == nil
+        let recordingLive = !manuallyStopped && tvActive && screenshotConsentGranted && recorder.lastError == nil
         let recPrefix = recordingLive ? "🔴 " : ""
         let baseString = formatDuration(bank.baseRemainingSeconds)
-        statusItem.button?.title = recPrefix + (isTaskTimerRunning ? "🧭 " : (lastTickWasCounting ? "⏱ " : "⏸ ")) + baseString
+        let glyph = manuallyStopped ? "🛑 " : (isTaskTimerRunning ? "🧭 " : (lastTickWasCounting ? "⏱ " : "⏸ "))
+        statusItem.button?.title = recPrefix + glyph + baseString
 
         let statusText: String
-        if isTaskTimerRunning {
+        if manuallyStopped {
+            statusText = "Status: Manually stopped (password to resume)"
+        } else if isTaskTimerRunning {
             statusText = "Status: Task timer running"
         } else if lastTickWasCounting {
             statusText = bank.baseRemainingSeconds > 0 ? "Status: Counting (base)" : "Status: Counting (overage)"
@@ -291,6 +326,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         consentItem.title = screenshotConsentGranted ? "Screenshot Consent (granted)…" : "Screenshot Consent (not granted)…"
 
         launchAtLoginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
+        manualStopItem.title = manuallyStopped ? "Resume Tracking (password)…" : "Stop Tracking (password)…"
 
         if let start = taskTimerStartDate, let estimate = taskTimerEstimateSeconds {
             let elapsed = Date().timeIntervalSince(start)
@@ -304,6 +340,39 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        refreshDisplay()
+    }
+
+    // MARK: - Manual stop / start (password-gated)
+
+    @objc private func manualStopTapped() {
+        let resuming = manuallyStopped
+        let prompt = NSAlert()
+        prompt.messageText = resuming ? "Resume Tracking" : "Stop Tracking"
+        prompt.informativeText = resuming
+            ? "Enter the password to resume automatic tracking."
+            : "Enter the password to stop all counting and screenshots until you resume. Useful when you're on the client's machine but not working billable time."
+        prompt.addButton(withTitle: resuming ? "Resume" : "Stop")
+        prompt.addButton(withTitle: "Cancel")
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        prompt.accessoryView = field
+        prompt.window.initialFirstResponder = field
+        guard prompt.runModal() == .alertFirstButtonReturn else { return }
+
+        guard bank.verifyPassword(field.stringValue) else {
+            let f = NSAlert()
+            f.messageText = "Incorrect Password"
+            f.alertStyle = .warning
+            f.runModal()
+            return
+        }
+
+        if !resuming {
+            // Close any open session before stopping so its time is logged.
+            sessionLog.endAutomaticSessionIfNeeded()
+            bank.flushIfDirty()
+        }
+        manuallyStopped = !resuming
         refreshDisplay()
     }
 

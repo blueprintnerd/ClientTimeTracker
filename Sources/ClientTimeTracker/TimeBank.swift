@@ -244,6 +244,11 @@ final class TimeBank {
         return true
     }
 
+    /// Verify the reset/control password (used to gate manual stop/start).
+    func verifyPassword(_ password: String) -> Bool {
+        passwordMatches(password)
+    }
+
     private func passwordMatches(_ password: String) -> Bool {
         let hash = SHA256.hash(data: Data(password.utf8))
         let hex = hash.map { String(format: "%02x", $0) }.joined()
