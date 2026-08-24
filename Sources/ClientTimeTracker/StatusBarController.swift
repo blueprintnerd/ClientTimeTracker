@@ -34,6 +34,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         buildMenu()
         statusItem.menu = menu
         menu.delegate = self
+        // Trigger the one-time Screen Recording permission prompt up front,
+        // so proof-of-work capture works the first time a session starts
+        // rather than silently failing until permission is granted.
+        recorder.requestPermission()
         refreshDisplay()
         startTicking()
     }
@@ -188,7 +192,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         lifetimeLineItem.title = String(format: "Lifetime total: $%.2f", bank.lifetimeDollars)
 
-        let shotCount = recorder.storedCount()
+        let shotCount = recorder.storedCount
         if lastTeamViewerState == .active {
             recordingLineItem.title = "🔴 Recording screen (session active) — \(shotCount) shots saved"
         } else {
