@@ -1,36 +1,64 @@
 # ClientTimeTracker
 
-A macOS menu-bar app that bills a client's remote-support time.
+A macOS menu-bar app that tracks development hours against the rev5 "App
+Development Services Agreement." It is a tracking aid; per **Section 8** of
+that contract, the developer's **written time log is the authoritative
+billing record** — this app produces that log (see *Export Time Log*).
 
 ## What it does
 
-- Weekly bank of **10 hours**, showing live remaining time in the menu bar (`⏱ 9h 42m`).
-- Only counts down while **both** are true:
-  - A TeamViewer remote-control session is actually connected (not just the app open).
-  - You (or the remote controller) have been active in the last **45 seconds** — checked via system-wide input idle time, which also registers input TeamViewer injects while controlling the machine.
-- **Add 1 Hour ($1)** button in the menu adds an hour to the current week's bank and $1.00 to a running lifetime total.
-- Every **Sunday**, the hour bank refreshes back to 10 hours (plus purchases reset to 0 for the new week) — but the lifetime dollar total is **not** cleared automatically, so pricing/billing stays consistent week to week.
-- The lifetime total can only be reset via **Clear Lifetime Total…**, which requires a password.
-- **Start Task Timer…** is a manual stopwatch for a single task: enter an estimated number of hours, and it starts counting up. This pauses the automatic TeamViewer/idle tracking while it runs. Press **Stop Task Timer** to end it, per the contract's estimate-overrun rule:
-  - If you finished within the estimate, the actual elapsed time is deducted from the weekly bank in full.
-  - If you went over, the overage (elapsed − estimate) is halved and rounded to the nearest hour (30+ min rounds up) — that rounded amount is forgiven, and the remainder of the elapsed time is deducted from the weekly cap.
-    - Example: 2h estimate, 4h actual → 2h overage → 1h forgiven → 3h deducted.
-    - Example: 2h estimate, 3h actual → 1h overage → rounds up to 1h forgiven → 2h deducted (i.e. just the estimate).
+### Base hours (Section 5)
+- Weekly cap of **10 hours**, shown live in the menu bar (`⏱ 6h 12m` = base
+  left this week).
+- Counts down only while **both**:
+  - A TeamViewer session is confirmed active (see detection notes below).
+  - You've been active in the last **45 seconds** (system-wide input idle).
+- Every **Sunday** the base cap refreshes to 10 hours.
 
-- **Proof-of-work screenshots.** While a TeamViewer session is active, the
-  app captures a full-screen screenshot every 2 minutes and saves it to
-  `~/Library/Application Support/ClientTimeTracker/Screenshots/`. This is a
-  shared record of the work performed, so time worked isn't disputable.
-  - A **🔴 indicator** appears in the menu bar and a menu line reports
-    recording status and shot count — recording is always visibly disclosed,
-    never hidden.
-  - Capture stops automatically when no TeamViewer session is active.
-  - **Open Screenshots Folder** opens the saved images.
-  - macOS requires **Screen Recording** permission (System Settings →
-    Privacy & Security → Screen Recording). The first capture triggers the
-    prompt; until it's granted, captures fail and the menu line shows a
-    ⚠︎ warning. The images are stored locally only — the app never uploads
-    them anywhere.
+### Overage (Section 5, two-tier)
+Overage only accrues **after** the 10-hour base is used up, **and** only if
+you've marked it approved for the week via **Approve Overage This Week**
+(the contract requires client pre-approval).
+- Rates, per week: first **2 hrs $3/hr**, every hour after **$6/hr**.
+- Caps: **4 hrs/week**, **12 hrs/period**, and a **16 total counted hrs/week**
+  ceiling. Maximum overage payable across a period is **$54**.
+- Billed in 30-minute increments, rounded up; the cheap tier resets each week.
+- The menu shows overage used this week / this period and the running dollars
+  owed. Settled once with the Day 30 payment.
+
+### Task timer (Section 6 forgiveness)
+- **Start Task Timer…** — enter an estimate, it counts up (pauses automatic
+  tracking). On stop:
+  - Within estimate → full elapsed time charged.
+  - Over estimate → overage (elapsed − estimate) halved, rounded to nearest
+    hour (30+ min up), that much **forgiven**; the rest charged (base first,
+    then approved overage).
+  - Examples: 2h est / 4h actual → 1h forgiven, 3h charged. 2h est / 3h
+    actual → whole overage forgiven, 2h charged.
+
+### Time log (Section 8) — the authoritative record
+- Every automatic session and task-timer session is appended to
+  `~/Library/Application Support/ClientTimeTracker/time_log.csv`
+  (type, start/end ISO timestamps, duration, base vs overage seconds, note).
+- **Export Time Log (CSV)…** saves a copy anywhere for sending to the client.
+  This is the strongest answer to "you couldn't have worked that many hours."
+
+### Proof-of-work screenshots (secondary; consent-gated per Section 8)
+Screenshots are **off until the client consents in the app**, because §8
+requires the other party's separate written consent before any tracking
+software runs on their machine.
+- **Screenshot Consent…** shows a plain disclosure (what's recorded, where
+  it's stored, how to remove it) and records consent. Only then does macOS's
+  **Screen Recording** permission get requested.
+- Once consented: a full-screen shot roughly every **2 minutes**, only while
+  a session is active **and** you're not idle. A **🔴** indicator and a menu
+  line keep it disclosed.
+- Safety brakes prevent runaway capture from a stale "session active"
+  reading: capture stops after sustained idle, after **10h** continuous, at a
+  **daily cap**, and old shots are **auto-pruned**.
+- Stored locally only, never uploaded. **Open Screenshots Folder** to review.
+- Note: §8 makes the *written log* authoritative — screenshots only
+  corroborate it.
 
 ## Build & run (on macOS, Swift 5.9+ / Xcode 15+)
 
@@ -80,7 +108,20 @@ System Settings → General → Login Items.
   the last input event. No special permission is required for this reading
   (only *simulating* or globally *observing* events needs Accessibility
   access, which this app does not do).
-- All state (remaining time, purchased hours, lifetime total, last reset
-  date) persists in `UserDefaults` between launches.
-- The clear-total password is stored in the source only as a SHA-256 hash,
-  never in plaintext.
+- State (base/overage counters, dollars owed, approval flag, reset dates)
+  persists in `UserDefaults`, written on a ~15s batched interval rather than
+  every second. **Note:** these values live in `UserDefaults`, so a
+  determined owner of this Mac can edit them directly — which is exactly why
+  §8 makes the exported **written log** the authoritative record, not this
+  counter. The **Start New 30-Day Period** reset is password-gated as a soft
+  deterrent, but it is not tamper-proof storage.
+- The reset password is stored in source only as a SHA-256 hash, never
+  in plaintext.
+
+## Not signed / notarized
+
+The DMG from CI is unsigned, so Gatekeeper will block a double-click. To
+open it the first time: **right-click the app → Open**, then confirm; or run
+`xattr -dr com.apple.quarantine /Applications/ClientTimeTracker.app`. Proper
+distribution needs an Apple Developer ID signature + notarization, which
+requires your paid Apple Developer account.
