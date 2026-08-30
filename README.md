@@ -131,11 +131,3 @@ System Settings → General → Login Items.
   deterrent, but it is not tamper-proof storage.
 - The reset password is stored in source only as a SHA-256 hash, never
   in plaintext.
-
-## Not signed / notarized
-
-The DMG from CI is unsigned, so Gatekeeper will block a double-click. To
-open it the first time: **right-click the app → Open**, then confirm; or run
-`xattr -dr com.apple.quarantine /Applications/ClientTimeTracker.app`. Proper
-distribution needs an Apple Developer ID signature + notarization, which
-requires your paid Apple Developer account.
