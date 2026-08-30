@@ -1,13 +1,7 @@
 import AppKit
 import CoreGraphics
 
-/// Periodically captures full-screen screenshots as secondary proof-of-work
-/// evidence. Per contract Section 8, the written time log is the authoritative
-/// record; screenshots only corroborate it, and installing this on the
-/// client's machine requires their separate written consent (recorded via the
-/// consent gate in the app). Capture is disclosed by a visible 🔴 indicator.
-///
-/// Safety brakes (so a stale "session active" reading can't capture forever):
+/// Safety brakes:
 ///   • only while a TeamViewer session is active AND the user is not idle,
 ///   • a per-session age ceiling,
 ///   • stop after N consecutive idle intervals,
