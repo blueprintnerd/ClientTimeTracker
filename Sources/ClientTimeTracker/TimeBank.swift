@@ -1,16 +1,5 @@
 import Foundation
 import CryptoKit
-
-/// Tracks worked time against the rev5 contract model:
-/// - A 10-hour weekly base cap (Section 5).
-/// - Pre-approved overage beyond the cap, billed on a two-tier weekly scale
-///   (first 2 hrs $3/hr, every hour after $6/hr), rounded up to 30-minute
-///   increments, capped at 4 hrs/week and 12 hrs across the 30-day period
-///   (max $54).
-/// - Estimate-overrun forgiveness for manual task sessions (Section 6).
-///
-/// The app is a tracking aid; per Section 8 the developer's written log is
-/// the authoritative billing record. See `SessionLog` for the exportable log.
 final class TimeBank {
 
     static let weeklyBaseSeconds: TimeInterval = 10 * 3600
@@ -18,16 +7,10 @@ final class TimeBank {
     static let maxOveragePeriodSeconds: TimeInterval = 12 * 3600
     static let maxTotalCountedSecondsPerWeek: TimeInterval = 16 * 3600
 
-    static let overageTier1Hours: Double = 2      // first 2 overage hrs/week
-    static let overageTier1Rate: Double = 3.0     // $/hr
-    static let overageTier2Rate: Double = 6.0     // $/hr thereafter
-    static let billingIncrementSeconds: TimeInterval = 1800 // 30 min, rounded up
-
-    // SHA-256 of the reset password. The plaintext is never stored anywhere
-    // in the project. Gates the sensitive period reset only; note that the
-    // underlying values live in UserDefaults and a determined machine owner
-    // can edit them directly — the authoritative record is the written log
-    // (Section 8), not this counter.
+    static let overageTier1Hours: Double = 2      
+    static let overageTier1Rate: Double = 3.0   
+    static let overageTier2Rate: Double = 6.0     
+    static let billingIncrementSeconds: TimeInterval = 1800 
     private static let resetPasswordHash =
         "3c852a6e70d1e927d673d47ddd10993e7376c947eebfeda8fdd523a5ee92c692"
 
@@ -111,8 +94,6 @@ final class TimeBank {
         Self.overageDollars(forWeekSeconds: overageSecondsThisWeek)
     }
 
-    /// Remaining overage headroom this week, honoring the weekly 4h cap, the
-    /// period 12h cap, and the 16h total-counted-hours weekly ceiling.
     var overageHeadroomSeconds: TimeInterval {
         let weekly = Self.maxOverageSecondsPerWeek - overageSecondsThisWeek
         let period = Self.maxOveragePeriodSeconds - overageSecondsThisPeriod
@@ -121,12 +102,6 @@ final class TimeBank {
         return max(0, min(weekly, min(period, totalCeiling)))
     }
 
-    // MARK: - Weekly reset
-
-    /// If a new week (Sunday) has started, bank this week's overage dollars,
-    /// refresh the 10-hour base cap, reset the weekly overage counter and its
-    /// tier, and clear the per-week overage approval. Period-level overage
-    /// (seconds and banked dollars) is preserved.
     @discardableResult
     func applyWeeklyResetIfNeeded(now: Date = Date()) -> Bool {
         let currentWeekStart = Self.mostRecentSunday(from: now)
@@ -163,8 +138,7 @@ final class TimeBank {
         return .blocked
     }
 
-    /// Total seconds still available to work this week (base + approved
-    /// overage headroom).
+
     var availableSeconds: TimeInterval {
         baseRemainingSeconds + (overageApprovedThisWeek ? overageHeadroomSeconds : 0)
     }
@@ -174,8 +148,6 @@ final class TimeBank {
         forcePersist()
     }
 
-    // MARK: - Manual task session (Section 6 forgiveness)
-
     struct ManualSessionResult {
         let elapsedSeconds: TimeInterval
         let estimateSeconds: TimeInterval
@@ -184,10 +156,6 @@ final class TimeBank {
         let chargedSeconds: TimeInterval
     }
 
-    /// Applies a manually-timed task session, per the Section 6 rule:
-    /// within estimate, the full elapsed time is charged; over estimate,
-    /// half the overage (rounded to the nearest hour) is forgiven and the
-    /// rest is charged. Charged time draws base first, then approved overage.
     @discardableResult
     func applyManualSession(elapsedSeconds: TimeInterval, estimateSeconds: TimeInterval) -> ManualSessionResult {
         let wentOver = elapsedSeconds > estimateSeconds
@@ -225,11 +193,7 @@ final class TimeBank {
         )
     }
 
-    // MARK: - Period reset (password-gated)
 
-    /// Starts a new 30-day period: clears all overage tracking (seconds and
-    /// dollars) and refreshes the base cap. Gated by the reset password so
-    /// the client can't zero out overage owed at the machine.
     @discardableResult
     func startNewPeriod(password: String) -> Bool {
         guard passwordMatches(password) else { return false }
